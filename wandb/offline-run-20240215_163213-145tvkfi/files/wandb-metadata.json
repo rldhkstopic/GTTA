@@ -1,0 +1,27 @@
+{
+    "os": "Linux-5.4.0-166-generic-x86_64-with-glibc2.31",
+    "python": "3.9.7",
+    "heartbeatAt": "2024-02-15T07:32:14.330145",
+    "startedAt": "2024-02-15T07:32:13.766366",
+    "docker": null,
+    "gpu": "NVIDIA GeForce RTX 3080",
+    "gpu_count": 2,
+    "cpu_count": 20,
+    "cuda": null,
+    "args": [
+        "--cfg",
+        "cfgs/gtta.yaml"
+    ],
+    "state": "running",
+    "program": "/home/kiwan/code/GTTA/segmentation/test_time.py",
+    "codePath": "segmentation/test_time.py",
+    "git": {
+        "remote": "https://github.com/rldhkstopic/GTTA.git",
+        "commit": "3fee351585de4825c07b9ae9047924650a81d69b"
+    },
+    "email": "rldhks6899@naver.com",
+    "root": "/home/kiwan/code/GTTA",
+    "host": "gold",
+    "username": "kiwan",
+    "executable": "/home/kiwan/anaconda3/envs/tta/bin/python"
+}
