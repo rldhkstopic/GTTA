@@ -25,13 +25,12 @@ python test_time.py --cfg cfgs/gtta.yaml
 + dynamic: `dynamic_1200.txt`
 + highway: `town04_dynamic_1200.txt`
 
-highway를 test sequence로 선택한 경우, source list와 해당 체크포인트 경로를 변경해야 합니다.
+highway를 test sequence로 선택한 경우, source list와 해당 체크포인트 경로를 변경
 ```bash
 python test_time.py --cfg cfgs/gtta.yaml LIST_NAME_SRC clear_highway_train.txt LIST_NAME_TEST town04_dynamic_1200.txt CKPT_PATH_SEG ./ckpt/clear_highway/ckpt_seg.pth CKPT_PATH_ADAIN_DEC = ./ckpt/clear_highway/ckpt_adain.pth
 ```
 
 ### CarlaTTA
-CarlaTTA의 다양한 데이터셋을 Google Drive에서 개별 zip 파일로 제공 중:
 + clear [다운로드](https://drive.google.com/file/d/19HUmZkL5wo4gY7w5cfztgNVga_uNSVUp/view?usp=sharing)
 + day2night [다운로드](https://drive.google.com/file/d/1R3br738UCPGryhWhJE-Uy4sCJW3FaVTr/view?usp=sharing)
 + clear2fog  [다운로드](https://drive.google.com/file/d/1LeNF9PpdJ7lbpsvNwGy9xpC-AYlPiwMI/view?usp=sharing)
@@ -42,8 +41,8 @@ CarlaTTA의 다양한 데이터셋을 Google Drive에서 개별 zip 파일로 �
 + highway [다운로드](https://drive.google.com/file/d/1Q_3iOuDK4t-W3lvsHwRddDqHTE8GEAIj/view?usp=sharing)
 
 ### 감사의 말
-+ Sementation 모델은 AdaptSegNet [공식](https://github.com/wasidennis/AdaptSegNet)에서 가져왔습니다.
-+ CarlaTTA는 Carla [공식](https://github.com/carla-simulator/carla)을 사용했습니다.
-+ ASM [공식](https://github.com/RoyalVane/ASM)
-+ SM-PPM [공식](https://github.com/W-zx-Y/SM-PPM)
-+ MEMO [공식](https://github.com/zhangmarvin/memo)
++ Sementation 모델 : AdaptSegNet [Official](https://github.com/wasidennis/AdaptSegNet)
++ CarlaTTA : Carla [Official](https://github.com/carla-simulator/carla)
++ ASM [Official](https://github.com/RoyalVane/ASM)
++ SM-PPM [Official](https://github.com/W-zx-Y/SM-PPM)
++ MEMO [Official](https://github.com/zhangmarvin/memo)
