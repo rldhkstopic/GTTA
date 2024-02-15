@@ -1,10 +1,10 @@
 ### Prerequisites
 To use the repository, we provide a conda environment.
-
+```
 conda update conda
 conda env create -f environment.yml
 conda activate tta 
-
+```
 ## Online Test-time Adaptation
 
 PyTorch를 기반으로 한 Gradual Online Test-Time Adapatation으로 아래 연구 논문을 기반으로 작성됨
