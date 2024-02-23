@@ -14,8 +14,8 @@ from carlaTTA_transforms import get_carla_transforms
 
 def log_memory_usage(message, pre_memory):
     crnt_memory = torch.cuda.memory_allocated()
-    delta_memory = crnt_memory - pre_memory
-    print(f"{message}. Current Memory: {crnt_memory / (1024 ** 2):.2f} MB, Delta: {delta_memory / (1024 ** 2):+.2f} MB")
+    delta = crnt_memory - pre_memory
+    print(f"M: {crnt_memory / (1024 ** 2):.2f} MB, {delta / (1024 ** 2):+.2f} MB >> {message}. ")
     return crnt_memory
 
 class RoTTA(TTAMethod):
@@ -48,85 +48,78 @@ class RoTTA(TTAMethod):
             
     @torch.enable_grad()
     def forward_and_adapt(self, x):
-        pre_memory = torch.cuda.memory_allocated()
-        pre_memory = log_memory_usage("[RoTTA] Forward and Adapt", pre_memory)
+        print("\n\n************** Forward and Adapt **************")
 
+        pre_memory = torch.cuda.memory_allocated()
         with torch.no_grad():
             self.model.eval()
             self.model_ema.eval()
-            pre_memory = log_memory_usage("[RoTTA] Model & EMA Eval", pre_memory)
 
             ema_out = self.model_ema(x)
-            pre_memory = log_memory_usage("[RoTTA] Model EMA Out", pre_memory)
+            pre_memory = log_memory_usage("Model EMA Out", pre_memory)
 
             predict = torch.softmax(ema_out, dim=1)
-            pre_memory = log_memory_usage("[RoTTA] Model predict Softmax", pre_memory)
+            pre_memory = log_memory_usage("Model predict Softmax", pre_memory)
 
             pseudo_label = torch.argmax(predict, dim=1)
             entropy = torch.sum(-predict * torch.log(predict + 1e-6), dim=1)
-            pre_memory = log_memory_usage("[RoTTA] Pseudo Labeling from Predict", pre_memory)
-            print(f"[RoTTA] Entropy of Predict is calculated.. ")
+            pre_memory = log_memory_usage("Pseudo Labeling & Entropy from Predict", pre_memory)
                 
-            # add into memory
-            for i, data in enumerate(x):
-                p_l, _ = torch.mode(pseudo_label[i].view(-1)) # 가장 빈번한 레이블 값을 선택
-                # print("p_l : ", p_l, "uncertainty : ", entropy[i])
-                uncertainty = entropy[i].mean().item()
-                current_instance = (data, p_l, uncertainty)
-                self.mem.add_instance(current_instance)
-                self.current_instance += 1
+        # add into memory
+        for i, data in enumerate(x):
+            p_l, _ = torch.mode(pseudo_label[i].view(-1))          # -> Pseudo Label
+            uncertainty = entropy[i].mean().item()                 # -> Mean Entropy 
+            current_instance = (data, p_l, uncertainty)
+            self.mem.add_instance(current_instance)
+            self.current_instance += 1
 
-                if self.current_instance % self.update_frequency == 0:
-                    self.update_model()
+            if self.current_instance % self.update_frequency == 0: # -> Memory Update
+                self.update_model()
 
         return ema_out
 
     def update_model(self):
         pre_memory = torch.cuda.memory_allocated()
-        pre_memory = log_memory_usage("[RoTTA] Update Model", pre_memory)
         
-        self.model.train()
-        pre_memory = log_memory_usage("[RoTTA] Model Train", pre_memory)
-        
+        self.model.train()        
         self.model_ema.train()
-        pre_memory = log_memory_usage("[RoTTA] Model EMA Train", pre_memory)
         
         # get memory data
         sup_data, ages = self.mem.get_memory()
-        pre_memory = log_memory_usage("[RoTTA] Memory Data Loaded", pre_memory)
         
         l_sup = None
         if len(sup_data) > 0:
+            pre_memory = log_memory_usage("Memory Data Stacked..", pre_memory)
             sup_data = torch.stack(sup_data)
-            print("[RoTTA] Memory Data stacked..")
-            pre_memory = log_memory_usage("[RoTTA] Memory Data Stacked", pre_memory)
             
             # > EMA Teacher Model
+            pre_memory = log_memory_usage("EMA Teacher Model Output", pre_memory)
             ema_sup_out = self.model_ema(sup_data)
-            pre_memory = log_memory_usage("[RoTTA] EMA Teacher Model Output", pre_memory)
 
             # > Strong Augmentation -> Student Model
+            pre_memory = log_memory_usage("Student Model Output with Augmentation", pre_memory)
             stu_sup_out = self.model(self.transform(sup_data))
-            pre_memory = log_memory_usage("[RoTTA] Student Model Output with Augmentation", pre_memory)
             
             # > Instance Weighting (Timeliness Reweighting) for Memory Data
+            pre_memory = log_memory_usage("Instance Weighting Applied", pre_memory)
             instance_weight = timeliness_reweighting(ages, device=self.device)
-            pre_memory = log_memory_usage("[RoTTA] Instance Weighting Applied", pre_memory)
             
             # > Supervised Loss : Student Model and EMA Teacher Model's Cross Entropy Loss
             if l_sup is not None:
+                pre_memory = log_memory_usage("Supervised Loss Calculated", pre_memory)
                 ema_sup_out = F.interpolate(ema_sup_out, size=stu_sup_out.shape[2:], mode='bilinear', align_corners=False)
                 l_sup = (softmax_cross_entropy(stu_sup_out, ema_sup_out) * instance_weight).mean()
-                pre_memory = log_memory_usage("[RoTTA] Supervised Loss Calculated", pre_memory)
 
-            l = l_sup
+        l = l_sup            
         if l is not None:
             self.optimizer.zero_grad()
             l.backward()
             self.optimizer.step()
-            pre_memory = log_memory_usage("[RoTTA] Optimizer Step", pre_memory)
+            pre_memory = log_memory_usage(" Optimizer Step", pre_memory)
 
         self.update_ema_variables(self.model_ema, self.model, self.nu)
+        pre_memory = log_memory_usage(" EMA Model Update", pre_memory)
+        print("`````````````` Model is Updated ``````````````")
 
     def reset(self):
         if self.model_states is None or self.optimizer_state is None:
