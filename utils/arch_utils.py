@@ -16,6 +16,14 @@ class ImageNormalizer(torch.nn.Module):
         self.register_buffer('mean', torch.as_tensor(mean, dtype=torch.float32).view(1, 3, 1, 1))
 
     def forward(self, input: Tensor) -> Tensor:
+        # print(input[0].shape, input.dtype, input.device, self.mean.shape, self.mean.dtype, self.mean.device)
+        # input.shape : torch.Size([1, 512, 1024]) -> RGB 어디감?
+        # input.dtype : torch.float32
+        # input.device : cuda 0,1
+        # self.mean.shape : torch.Size([1, 3, 1, 1])
+        # self.mean.dtype : torch.float32
+        # self.mean.device : cuda 0,1
+        
         if isinstance(input, list):
             input[0] = input[0][:, [2, 1, 0], :, :] * 255. - self.mean  # needed, since smppm receives multiple inputs
         else:

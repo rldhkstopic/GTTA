@@ -24,21 +24,21 @@ def create_carla_loader(data_dir, list_path, ignore_label, test_size, batch_size
         logger.info(f"Reduced number of images: {nr_reduced}/{nr_samples} \t Reduction factor = {nr_reduced / nr_samples:.5f}")
 
     return torch.utils.data.DataLoader(dataset,
-                                       batch_size=batch_size,
-                                       num_workers=workers,
-                                       shuffle=True if is_training else False,
-                                       drop_last=True if is_training else False)
+                                        batch_size=batch_size,
+                                        num_workers=workers,
+                                        shuffle=True if is_training else False,
+                                        drop_last=True if is_training else False)
 
 
 class CarlaDataset(data.Dataset):
     def __init__(self,
-                 data_dir,
-                 list_name,
-                 ignore_label=255,
-                 test_size=1024,
-                 transform_train=None,
-                 is_training=False
-                 ):
+                data_dir,
+                list_name,
+                ignore_label=255,
+                test_size=1024,
+                transform_train=None,
+                is_training=False
+                ):
 
         self.data_dir = data_dir
         self.list_path = os.path.join("datasets", "carla_lists", list_name)
@@ -58,7 +58,7 @@ class CarlaDataset(data.Dataset):
         self.transform_test = augs.Compose([augs.Resize(test_size)])
 
         self.id_to_trainid = {7: 0, 8: 1, 1: 2, 11: 3, 2: 4, 5: 5, 18: 6, 12: 7,
-                              9: 8, 22: 9, 13: 10, 4: 11, 10: 12, 6: 13}
+                                        9: 8, 22: 9, 13: 10, 4: 11, 10: 12, 6: 13}
 
     def __getitem__(self, index):
         img_path = self.img_file_paths[index]

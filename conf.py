@@ -26,7 +26,7 @@ cfg = _C
 # ---------------------------------- Misc options --------------------------- #
 
 # Data directory
-_C.DATA_DIR = "/data/kiwan"
+_C.DATA_DIR = "/data/kiwan/CarlaTTA"
 
 # Weight directory
 _C.CKPT_DIR = "./ckpt"
@@ -133,13 +133,25 @@ _C.OPTIM.WORKERS = 4
 # Label to ignore during optimization
 _C.OPTIM.IGNORE_LABEL = 255
 
+# Dampening for momentum
+_C.OPTIM.BETA = 0.9
 
+"""
+_C.OPTIM.METHOD = 'Adam'
+_C.OPTIM.BETA = 0.9
+_C.OPTIM.MOMENTUM = 0.9
+_C.OPTIM.DAMPENING = 0.0
+_C.OPTIM.NESTEROV = True
+_C.OPTIM.WD = 0.0
+"""
 # ------------------------------- Batch norm options ------------------------ #
 _C.BN = CfgNode()
 
 # BN alpha (1-alpha) * src_stats + alpha * test_stats
 _C.BN.ALPHA = 0.1
 
+_C.BN.EPS = 1e-5
+_C.BN.MOM = 0.1
 # --------------------------------- Mean teacher options -------------------- #
 _C.M_TEACHER = CfgNode()
 
@@ -155,6 +167,28 @@ _C.COTTA.RST = 0.01
 # Average probability for TTA
 _C.COTTA.AP = 0.9
 
+
+# --------------------------------- RoTTA options ---------------------------- #
+_C.RoTTA = CfgNode()
+
+# Memory size
+_C.RoTTA.MEMORY_SIZE = 64
+
+# Update frequency
+_C.RoTTA.UPDATE_FREQUENCY = 64
+
+# Nu
+_C.RoTTA.NU = 0.001
+
+# Alpha
+_C.RoTTA.ALPHA = 0.05
+
+# Lambda
+_C.RoTTA.LAMBDA_T = 1.0
+_C.RoTTA.LAMBDA_U = 1.0
+_C.RoTTA.RESIZE = 512
+
+
 # --------------------------------- GTTA options ---------------------------- #
 _C.GTTA = CfgNode()
 
@@ -162,7 +196,8 @@ _C.GTTA.STEPS_ADAIN = 1
 _C.GTTA.PRETRAIN_STEPS_ADAIN = 20000
 _C.GTTA.USE_STYLE_TRANSFER = True
 _C.GTTA.LAMBDA_CE_TRG = 0.1
-
+# _C.GTTA.CONF_THRESH = 0.9  # confidence threshold for pseudo-labels (코드에는 빠져있었음)
+# _C.GTTA.USE_CLASS_WEIGHTING = 0.1  # use class weighting for pseudo-labels (코드에는 빠져있었음) => 에당초 GTTA 함수에 선언되어있었음
 
 # ------------------------------- Source options ---------------------------- #
 _C.SOURCE = CfgNode()
@@ -305,7 +340,7 @@ def load_cfg_fom_args(description="Config options."):
 
     logger = logging.getLogger(__name__)
     version = [torch.__version__, torch.version.cuda,
-               torch.backends.cudnn.version()]
+                torch.backends.cudnn.version()]
     logger.info(
         "PyTorch Version: torch={}, cuda={}, cudnn={}".format(*version))
     logger.info(cfg)
@@ -313,7 +348,7 @@ def load_cfg_fom_args(description="Config options."):
 
 def map_asm_rain_paths(ckpt_dir, model_name):
     model2file_name = {'vgg_enc_path': os.path.join(ckpt_dir, "pretrained_rain", "vgg_normalised.pth"),
-                       'vgg_dec_path':  os.path.join(ckpt_dir, "pretrained_rain", "decoder_iter_160000.pth"),
-                       'style_enc_path': os.path.join(ckpt_dir, "pretrained_rain", "fc_encoder_iter_160000.pth"),
-                       'style_dec_path': os.path.join(ckpt_dir, "pretrained_rain", "fc_decoder_iter_160000.pth")}
+                        'vgg_dec_path':  os.path.join(ckpt_dir, "pretrained_rain", "decoder_iter_160000.pth"),
+                        'style_enc_path': os.path.join(ckpt_dir, "pretrained_rain", "fc_encoder_iter_160000.pth"),
+                        'style_dec_path': os.path.join(ckpt_dir, "pretrained_rain", "fc_decoder_iter_160000.pth")}
     return model2file_name[model_name]

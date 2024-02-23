@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 class GTTA(TTAMethod):
-    def __init__(self, model, optimizer, crop_size, steps, episodic, adain_model, src_loader, adain_loader, steps_adain, device, save_dir,
-                 lambda_ce_trg=0.1, num_classes=14, ignore_label=255, style_transfer=True):
+    def __init__(self, model, optimizer, 
+                crop_size, steps, episodic, adain_model, src_loader, adain_loader, steps_adain, device, save_dir,
+                lambda_ce_trg=0.1, num_classes=14, ignore_label=255, style_transfer=True):
         super().__init__(model, optimizer, crop_size, steps, episodic)
 
         self.adain_model = adain_model

@@ -5,6 +5,7 @@ import logging
 
 import torch
 import torch.optim as optim
+import torch.nn as nn
 
 from conf import cfg, load_cfg_fom_args
 from utils.arch_utils import load_model
@@ -12,6 +13,8 @@ from utils.eval_utils import evaluate_sequence
 from datasets.carla_dataset import create_carla_loader, IMG_MEAN
 from augmentations.transforms_source import get_src_transform
 from models.style_transfer_cace import TransferNet
+
+
 
 from methods.bn import AlphaBatchNorm
 from methods.norm_ema import NormEMA
@@ -21,8 +24,10 @@ from methods.cotta import CoTTA
 from methods.gtta import GTTA
 from methods.asm import ASM
 from methods.sm_ppm import SMPPM
+from methods.rotta import RoTTA
 
-os.environ["WANDB_MODE"] = "offline"
+project_name = "day2night"
+os.environ["WANDB_MODE"] = "online"
 logger = logging.getLogger(__name__)
 
 
@@ -38,10 +43,10 @@ def main(description):
         logger.info('\nModel will run on CPU')
 
     # setup wandb logging
-    wandb.init(project="GradualDomainAdaptation",
-               name=cfg.EXP_NAME,
-               config=cfg,
-               resume="allow")
+    wandb.init(project=project_name,
+                name=cfg.EXP_NAME,
+                config=cfg,
+                resume="allow")
 
     # Setup segmentation model
     base_model = load_model(method=cfg.MODEL.ADAPTATION,
@@ -52,14 +57,18 @@ def main(description):
                             num_classes=cfg.MODEL.NUM_CLASSES,
                             model_name=cfg.MODEL.NAME)
 
-    # setup test data loader
+    if torch.cuda.device_count() > 1:
+        base_model = nn.DataParallel(base_model)
+
+    base_model.to(device)
+    
     test_loader = create_carla_loader(data_dir=cfg.DATA_DIR,
-                                      list_path=cfg.LIST_NAME_TEST,
-                                      ignore_label=cfg.OPTIM.IGNORE_LABEL,
-                                      test_size=cfg.TEST.IMG_SIZE,
-                                      batch_size=cfg.TEST.BATCH_SIZE,
-                                      workers=1,
-                                      is_training=False)
+                                        list_path=cfg.LIST_NAME_TEST,
+                                        ignore_label=cfg.OPTIM.IGNORE_LABEL,
+                                        test_size=cfg.TEST.IMG_SIZE,
+                                        batch_size=cfg.TEST.BATCH_SIZE,
+                                        workers=1,
+                                        is_training=False)
 
     if cfg.MODEL.ADAPTATION == "source":        # BN--0
         model = setup_source(base_model)
@@ -81,20 +90,24 @@ def main(description):
         model = setup_smppm(base_model, device)
     elif cfg.MODEL.ADAPTATION == "gtta":
         model = setup_gtta(base_model, device)
+    elif cfg.MODEL.ADAPTATION == "rotta":
+        model = setup_rotta(base_model, device)
     else:
         raise ValueError(f"Adaptation method '{cfg.MODEL.ADAPTATION}' is not supported!")
 
+    
+    
     preds_dir_path = os.path.join(cfg.SAVE_DIR, "predictions")
     if cfg.SAVE_PREDICTIONS:
         os.makedirs(preds_dir_path, exist_ok=True)
 
     # start adapting the model during test time
     miou = evaluate_sequence(model=model,
-                             data_loader=test_loader,
-                             device=device,
-                             num_classes=cfg.MODEL.NUM_CLASSES,
-                             save_preds=cfg.SAVE_PREDICTIONS,
-                             preds_dir_path=preds_dir_path)
+                                data_loader=test_loader,
+                                device=device,
+                                num_classes=cfg.MODEL.NUM_CLASSES,
+                                save_preds=cfg.SAVE_PREDICTIONS,
+                                preds_dir_path=preds_dir_path)
 
     logger.info(f"Final mIoU for complete sequence: {cfg.LIST_NAME_TEST} \t mIoU = {miou}")
 
@@ -136,9 +149,9 @@ def setup_tent(model):
     params, param_names = Tent.collect_params(model)
     optimizer = setup_optimizer(params)
     tent_model = Tent(model, optimizer,
-                      crop_size=cfg.SOURCE.CROP_SIZE,
-                      steps=cfg.OPTIM.STEPS,
-                      episodic=cfg.MODEL.EPISODIC)
+                        crop_size=cfg.SOURCE.CROP_SIZE,
+                        steps=cfg.OPTIM.STEPS,
+                        episodic=cfg.MODEL.EPISODIC)
     return tent_model
 
 
@@ -147,10 +160,10 @@ def setup_memo(model, device):
     params_feat, params_head = MEMO.collect_params(model)
     optimizer = setup_optimizer(params_feat, params_head, cfg.CKPT_PATH_SEG)
     memo_model = MEMO(model, optimizer,
-                      crop_size=cfg.SOURCE.CROP_SIZE,
-                      steps=cfg.OPTIM.STEPS,
-                      episodic=cfg.MODEL.EPISODIC,
-                      n_augmentations=cfg.TEST.N_AUGMENTATIONS)
+                        crop_size=cfg.SOURCE.CROP_SIZE,
+                        steps=cfg.OPTIM.STEPS,
+                        episodic=cfg.MODEL.EPISODIC,
+                        n_augmentations=cfg.TEST.N_AUGMENTATIONS)
     return memo_model
 
 
@@ -197,6 +210,28 @@ def setup_smppm(model, device):
                         ignore_label=cfg.OPTIM.IGNORE_LABEL)
     return smppm_model
 
+def setup_rotta(model, device):
+    params_feat, params_head = RoTTA.collect_params(model)
+    optimizer = setup_optimizer(params_feat, params_head, cfg.CKPT_PATH_SEG, cfg.MODEL.ADAPTATION)
+    rotta_model = RoTTA(model, optimizer,device=device,
+                        img_resize=cfg.RoTTA.RESIZE,
+                        crop_size=cfg.SOURCE.CROP_SIZE,
+                        num_classes=cfg.MODEL.NUM_CLASSES,
+                        steps=cfg.OPTIM.STEPS,
+                        episodic=cfg.MODEL.EPISODIC,
+                        lambda_t=cfg.RoTTA.LAMBDA_T,
+                        lambda_u=cfg.RoTTA.LAMBDA_U,
+                        nu=cfg.RoTTA.NU,
+                        update_frequency=cfg.RoTTA.UPDATE_FREQUENCY,
+                        
+                        # src_loader=setup_src_loader(cfg, IMG_MEAN),
+                        
+                        # ignore_label=cfg.OPTIM.IGNORE_LABEL,
+                        # ckpt_dir=cfg.CKPT_DIR,  
+                        )
+                        
+    return rotta_model
+    
 
 def setup_gtta(model, device):
     params_feat, params_head = GTTA.collect_params(model)
@@ -204,39 +239,39 @@ def setup_gtta(model, device):
 
     adain_src_loader = setup_src_loader(cfg, IMG_MEAN, batch_size=4, min_scale=1.0, crop_size=(512, 512))
     adain_model = TransferNet(ckpt_path_vgg=os.path.join(cfg.CKPT_DIR, "vgg_normalized.pth"),
-                              ckpt_path_dec=cfg.CKPT_PATH_ADAIN_DEC,
-                              src_loader=adain_src_loader,
-                              device=device,
-                              num_iters_pretrain=cfg.GTTA.PRETRAIN_STEPS_ADAIN,
-                              num_classes=cfg.MODEL.NUM_CLASSES)
+                                ckpt_path_dec=cfg.CKPT_PATH_ADAIN_DEC,
+                                src_loader=adain_src_loader,
+                                device=device,
+                                num_iters_pretrain=cfg.GTTA.PRETRAIN_STEPS_ADAIN,
+                                num_classes=cfg.MODEL.NUM_CLASSES)
 
     src_loader = setup_src_loader(cfg, IMG_MEAN)
     gtta_model = GTTA(model, optimizer,
-                      crop_size=cfg.SOURCE.CROP_SIZE,
-                      steps=cfg.OPTIM.STEPS,
-                      episodic=cfg.MODEL.EPISODIC,
-                      adain_model=adain_model,
-                      src_loader=src_loader,
-                      adain_loader=adain_src_loader,
-                      steps_adain=cfg.GTTA.STEPS_ADAIN,
-                      device=device,
-                      save_dir=cfg.SAVE_DIR,
-                      lambda_ce_trg=cfg.GTTA.LAMBDA_CE_TRG,
-                      num_classes=cfg.MODEL.NUM_CLASSES,
-                      ignore_label=cfg.OPTIM.IGNORE_LABEL,
-                      conf_thresh=cfg.GTTA.CONF_THRESH,
-                      class_weighting=cfg.GTTA.USE_CLASS_WEIGHTING,
-                      style_transfer=cfg.GTTA.USE_STYLE_TRANSFER)
+                        crop_size=cfg.SOURCE.CROP_SIZE,
+                        steps=cfg.OPTIM.STEPS,
+                        episodic=cfg.MODEL.EPISODIC,
+                        adain_model=adain_model,
+                        src_loader=src_loader,
+                        adain_loader=adain_src_loader,
+                        steps_adain=cfg.GTTA.STEPS_ADAIN,
+                        device=device,
+                        save_dir=cfg.SAVE_DIR,
+                        lambda_ce_trg=cfg.GTTA.LAMBDA_CE_TRG,
+                        num_classes=cfg.MODEL.NUM_CLASSES,
+                        ignore_label=cfg.OPTIM.IGNORE_LABEL,
+                        # conf_thresh=cfg.GTTA.CONF_THRESH,
+                        # class_weighting=cfg.GTTA.USE_CLASS_WEIGHTING,
+                        style_transfer=cfg.GTTA.USE_STYLE_TRANSFER)
     return gtta_model
 
 
 def setup_optimizer(params, params_head=None, ckpt_path=None, method=None):
     if cfg.OPTIM.METHOD == 'SGD':
         optimizer = optim.SGD(params,
-                              lr=cfg.OPTIM.LR,
-                              momentum=cfg.OPTIM.MOMENTUM,
-                              weight_decay=cfg.OPTIM.WD,
-                              nesterov=cfg.OPTIM.NESTEROV)
+                                lr=cfg.OPTIM.LR,
+                                momentum=cfg.OPTIM.MOMENTUM,
+                                weight_decay=cfg.OPTIM.WD,
+                                nesterov=cfg.OPTIM.NESTEROV)
         if params_head is not None:
             optimizer.add_param_group({'params': params_head, 'lr': cfg.OPTIM.SCALE_LR_SEGHEAD * cfg.OPTIM.LR})
     else:
@@ -256,14 +291,14 @@ def setup_optimizer(params, params_head=None, ckpt_path=None, method=None):
 def setup_src_loader(cfg, img_mean, batch_size=None, min_scale=None, crop_size=None):
     transform_train = get_src_transform(cfg, img_mean, min_scale=min_scale, crop_size=crop_size)
     src_loader = create_carla_loader(data_dir=cfg.DATA_DIR,
-                                     list_path=cfg.LIST_NAME_SRC,
-                                     ignore_label=cfg.OPTIM.IGNORE_LABEL,
-                                     test_size=cfg.TEST.IMG_SIZE,
-                                     batch_size=cfg.SOURCE.BATCH_SIZE if batch_size is None else batch_size,
-                                     percentage=cfg.SOURCE.PERCENTAGE,
-                                     workers=cfg.OPTIM.WORKERS,
-                                     transform_train=transform_train,
-                                     is_training=True)
+                                        list_path=cfg.LIST_NAME_SRC,
+                                        ignore_label=cfg.OPTIM.IGNORE_LABEL,
+                                        test_size=cfg.TEST.IMG_SIZE,
+                                        batch_size=cfg.SOURCE.BATCH_SIZE if batch_size is None else batch_size,
+                                        percentage=cfg.SOURCE.PERCENTAGE,
+                                        workers=cfg.OPTIM.WORKERS,
+                                        transform_train=transform_train,
+                                        is_training=True)
     return src_loader
 
 
