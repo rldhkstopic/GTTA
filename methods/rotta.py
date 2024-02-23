@@ -89,16 +89,16 @@ class RoTTA(TTAMethod):
         
         l_sup = None
         if len(sup_data) > 0:
-            pre_memory = log_memory_usage("Memory Data Stacked..", pre_memory)
             sup_data = torch.stack(sup_data)
+            pre_memory = log_memory_usage("Memory Data Stacked..", pre_memory)
             
             # > EMA Teacher Model
-            pre_memory = log_memory_usage("EMA Teacher Model Output", pre_memory)
             ema_sup_out = self.model_ema(sup_data)
+            pre_memory = log_memory_usage("EMA Teacher Model Output", pre_memory)
 
             # > Strong Augmentation -> Student Model
-            pre_memory = log_memory_usage("Student Model Output with Augmentation", pre_memory)
             stu_sup_out = self.model(self.transform(sup_data))
+            pre_memory = log_memory_usage("Student Model Output with Augmentation", pre_memory)
             
             # > Instance Weighting (Timeliness Reweighting) for Memory Data
             pre_memory = log_memory_usage("Instance Weighting Applied", pre_memory)
