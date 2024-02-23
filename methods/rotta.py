@@ -15,7 +15,7 @@ from carlaTTA_transforms import get_carla_transforms
 def log_memory_usage(message, pre_memory):
     crnt_memory = torch.cuda.memory_allocated()
     delta = crnt_memory - pre_memory
-    print(f"M: {crnt_memory / (1024 ** 2):.2f} MB, {delta / (1024 ** 2):+.2f} MB >> {message}. ")
+    print(f"M: {crnt_memory / (1024 ** 2):07.2f} MB, {delta / (1024 ** 2):+07.2f} MB >> {message}. ")
     return crnt_memory
 
 class RoTTA(TTAMethod):
@@ -48,22 +48,20 @@ class RoTTA(TTAMethod):
             
     @torch.enable_grad()
     def forward_and_adapt(self, x):
-        print("\n\n************** Forward and Adapt **************")
-
-        pre_memory = torch.cuda.memory_allocated()
+        # pre_memory = torch.cuda.memory_allocated()
         with torch.no_grad():
             self.model.eval()
             self.model_ema.eval()
 
             ema_out = self.model_ema(x)
-            pre_memory = log_memory_usage("Model EMA Out", pre_memory)
+            # pre_memory = log_memory_usage("Model EMA Out", pre_memory)
 
             predict = torch.softmax(ema_out, dim=1)
-            pre_memory = log_memory_usage("Model predict Softmax", pre_memory)
+            # pre_memory = log_memory_usage("Model predict Softmax", pre_memory)
 
             pseudo_label = torch.argmax(predict, dim=1)
             entropy = torch.sum(-predict * torch.log(predict + 1e-6), dim=1)
-            pre_memory = log_memory_usage("Pseudo Labeling & Entropy from Predict", pre_memory)
+            # pre_memory = log_memory_usage("Pseudo Labeling & Entropy from Predict", pre_memory)
                 
         # add into memory
         for i, data in enumerate(x):
@@ -73,7 +71,11 @@ class RoTTA(TTAMethod):
             self.mem.add_instance(current_instance)
             self.current_instance += 1
 
+            print(f"\r▶ [ADAPTATION] Memory Update: {self.current_instance}/{self.update_frequency*(self.current_instance//self.update_frequency+1)}", end="")
             if self.current_instance % self.update_frequency == 0: # -> Memory Update
+                print("\n")
+                
+                torch.cuda.empty_cache()
                 self.update_model()
 
         return ema_out
@@ -87,38 +89,62 @@ class RoTTA(TTAMethod):
         # get memory data
         sup_data, ages = self.mem.get_memory()
         
+        """ model update시 torch.no_grad()를 사용하지 않은 경우, Out of Memory Error 발생함
+        
+            ************** Forward and Adapt **************
+                M: 1306.43 MB, +56.00 MB >> Model EMA Out.                             # -> EMA Teacher Model : 사전 학습 모델로부터 deepcopy한 모델
+                M: 1362.43 MB, +56.00 MB >> Model predict Softmax.                     # -> Model predict Softmax
+                M: 1374.43 MB, +12.00 MB >> Pseudo Labeling & Entropy from Predict.    # -> Pseudo Labeling & Entropy from Predict
+                M: 1464.43 MB, +90.00 MB >> Memory Data Stacked...                  
+                M: 1884.43 MB, +420.00 MB >> EMA Teacher Model Output.
+            `````````````` Model is Updated ``````````````
+        """
+        
+        """ model update시 torch.no_grad()를 사용한 경우, Out of Memory Error 발생하지 않음 > 하지만 model update에서 no_grad()를 사용하면 안됨.
+        
+            ************** Forward and Adapt **************
+                Memory Update: 63/64
+                Memory Update: 64/64
+                M: 1464.43 MB, +90.00 MB >>  UPDATE ::  Memory Data Stacked...
+                M: 1884.43 MB, +420.00 MB >>  UPDATE ::  EMA Teacher Model Output.
+                M: 1989.43 MB, +105.00 MB >>  UPDATE ::  Student Model Output with Augmentation.
+                M: 1989.43 MB, +0.00 MB >>  UPDATE ::  Instance Weighting Applied.
+                M: 1989.43 MB, +0.00 MB >>  UPDATE ::  EMA Model Update.
+            `````````````` Model is Updated ``````````````
+        """
         l_sup = None
         if len(sup_data) > 0:
-            sup_data = torch.stack(sup_data)
-            pre_memory = log_memory_usage("Memory Data Stacked..", pre_memory)
+            
+            sup_data = torch.stack(sup_data)  # -> Memory Data Stacked.. 
+            pre_memory = log_memory_usage(" UPDATE ::  Memory Data Stacked..", pre_memory)
             
             # > EMA Teacher Model
-            ema_sup_out = self.model_ema(sup_data)
-            pre_memory = log_memory_usage("EMA Teacher Model Output", pre_memory)
+            with torch.no_grad():
+                ema_sup_out = self.model_ema(sup_data)  # -> EMA Teacher Model Output + Memory Data (computational cost is high)
+                pre_memory = log_memory_usage(" UPDATE ::  EMA Teacher Model Output", pre_memory)
 
             # > Strong Augmentation -> Student Model
             stu_sup_out = self.model(self.transform(sup_data))
-            pre_memory = log_memory_usage("Student Model Output with Augmentation", pre_memory)
+            pre_memory = log_memory_usage(" UPDATE ::  Student Model Output with Augmentation", pre_memory)
             
             # > Instance Weighting (Timeliness Reweighting) for Memory Data
-            pre_memory = log_memory_usage("Instance Weighting Applied", pre_memory)
             instance_weight = timeliness_reweighting(ages, device=self.device)
+            pre_memory = log_memory_usage(" UPDATE ::  Instance Weighting Applied", pre_memory)
             
             # > Supervised Loss : Student Model and EMA Teacher Model's Cross Entropy Loss
             if l_sup is not None:
-                pre_memory = log_memory_usage("Supervised Loss Calculated", pre_memory)
+                pre_memory = log_memory_usage(" UPDATE ::  Supervised Loss Calculated", pre_memory)
                 ema_sup_out = F.interpolate(ema_sup_out, size=stu_sup_out.shape[2:], mode='bilinear', align_corners=False)
                 l_sup = (softmax_cross_entropy(stu_sup_out, ema_sup_out) * instance_weight).mean()
 
-        l = l_sup            
-        if l is not None:
-            self.optimizer.zero_grad()
-            l.backward()
-            self.optimizer.step()
-            pre_memory = log_memory_usage(" Optimizer Step", pre_memory)
+            l = l_sup            
+            if l is not None:
+                self.optimizer.zero_grad()
+                l.backward()
+                self.optimizer.step()
+                pre_memory = log_memory_usage(" Optimizer Step", pre_memory)
 
         self.update_ema_variables(self.model_ema, self.model, self.nu)
-        pre_memory = log_memory_usage(" EMA Model Update", pre_memory)
         print("`````````````` Model is Updated ``````````````")
 
     def reset(self):
