@@ -98,7 +98,7 @@ _C.TEST = CfgNode()
 _C.TEST.BATCH_SIZE = 1
 
 # Number of augmentations for methods relying on TTA (test time augmentation)
-_C.TEST.N_AUGMENTATIONS = 6
+_C.TEST.N_AUGMENTATIONS = 3
 
 # Smaller side of test image
 _C.TEST.IMG_SIZE = 1024

@@ -26,7 +26,7 @@ from methods.asm import ASM
 from methods.sm_ppm import SMPPM
 from methods.rotta import RoTTA
 
-project_name = "day2night"
+project_name = "carla_adaptation"
 os.environ["WANDB_MODE"] = "online"
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,10 @@ def main(description):
     if torch.cuda.device_count() > 1:
         base_model = nn.DataParallel(base_model)
 
+    # check base_model's cuda devices
+    # if isinstance(base_model, nn.DataParallel):
+    #     logger.info(f"Model is using {len(base_model.device_ids)} GPUs")
+        
     base_model.to(device)
     
     test_loader = create_carla_loader(data_dir=cfg.DATA_DIR,

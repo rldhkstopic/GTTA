@@ -4,12 +4,72 @@ import random
 import logging
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from methods.base import TTAMethod
 from utils.visualization import save_col_preds
+import inspect
 
 logger = logging.getLogger(__name__)
 
+def debug_log(count=0):
+    print("▶▷▷ debug check : ", count)
+
+class SymCrossEntropy(nn.Module):
+    def __init__(self, alpha=1, beta=0.1, num_classes=14, ignore_index=255):
+        super(SymCrossEntropy, self).__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.num_classes = num_classes
+        self.ignore_index = ignore_index
+        
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, ignore_index=self.ignore_index)
+        
+        targets_adjusted = targets.clone()
+        targets_adjusted[targets == self.ignore_index] = 0
+        targets_adjusted = targets_adjusted.unsqueeze(-1)
+        
+        targets_one_hot = F.one_hot(targets_adjusted, num_classes=self.num_classes)
+        targets_one_hot = targets_one_hot.squeeze(-2).permute(0, 3, 1, 2).float()
+        
+        mask = targets.unsqueeze(1) == self.ignore_index
+        mask_expanded = mask.expand_as(targets_one_hot)
+        
+        targets_one_hot[mask_expanded] = 0.0
+        
+        # Calculate reverse cross entropy loss
+        softmax_inputs = F.softmax(inputs, dim=1)
+        rce_loss = -(targets_one_hot * torch.log(softmax_inputs + 1e-6)).sum(dim=1).mean()
+        debug_log(9)
+        
+        # Combine losses
+        total_loss = self.alpha * ce_loss + self.beta * rce_loss
+        return total_loss
+    
+class SCELoss(nn.Module):
+    def __init__(self, alpha, beta, num_classes=10, ignore_index=255):
+        super(SCELoss, self).__init__()
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.alpha = alpha
+        self.beta = beta
+        self.num_classes = num_classes
+        self.ignore_index = ignore_index
+
+    def forward(self, pred, labels):
+        # CCE
+        ce = F.cross_entropy(pred, labels, ignore_index=self.ignore_index)
+
+        # RCE
+        pred = F.softmax(pred, dim=1)
+        pred = torch.clamp(pred, min=1e-7, max=1.0)
+        label_one_hot = F.one_hot(labels, self.num_classes).float().to(self.device)
+        label_one_hot = torch.clamp(label_one_hot, min=1e-4, max=1.0)
+        rce = (-1*torch.sum(pred * torch.log(label_one_hot), dim=1))
+
+        # Loss
+        loss = self.alpha * ce + self.beta * rce.mean()
+        return loss
 
 class GTTA(TTAMethod):
     def __init__(self, model, optimizer, 
@@ -20,15 +80,21 @@ class GTTA(TTAMethod):
         self.adain_model = adain_model
         self.src_loader = src_loader
         self.adain_loader = adain_loader
+
         self.src_loader_iter = iter(self.src_loader)
         self.adain_loader_iter = iter(self.adain_loader)
+
         self.steps_adain = steps_adain
         self.device = device
+
         self.lambda_ce_trg = lambda_ce_trg
         self.num_classes = num_classes
+
         self.ignore_label = ignore_label
         self.use_style_transfer = style_transfer
-        self.cross_entropy = torch.nn.CrossEntropyLoss(ignore_index=self.ignore_label)
+        
+        # self.cross_entropy = torch.nn.CrossEntropyLoss(ignore_index=self.ignore_label)
+        self.cross_entropy = SymCrossEntropy(alpha=0.1, beta=1.0, num_classes=self.num_classes, ignore_index=self.ignore_label)
         self.avg_conf = torch.tensor(0.9).cuda()
         self.save_dir = save_dir
 
@@ -88,9 +154,12 @@ class GTTA(TTAMethod):
         self.optimizer.zero_grad()
         logits = self.model(gen_imgs)
         loss_src = self.cross_entropy(logits, labels_src)
+        debug_log(10)
         loss_src.backward()
+        debug_log(11)
         self.optimizer.step()
-
+        debug_log(12)
+        
         # create test batch
         imgs_test_cropped = torch.tensor([], device=self.device)
         pseudos_cropped = torch.tensor([], device=self.device)
@@ -103,14 +172,32 @@ class GTTA(TTAMethod):
 
         # do self-training with pseudo-labeled target images
         self.optimizer.zero_grad()
+        debug_log(13)
         loss_trg = F.cross_entropy(input=self.model(imgs_test_cropped),
-                                   target=pseudos_cropped.long(),
-                                   ignore_index=self.ignore_label)
-
+                                    target=pseudos_cropped.long(),
+                                    ignore_index=self.ignore_label)
+        print("debug check loss_trg", loss_trg.item())
         loss_trg *= self.lambda_ce_trg
         loss_trg.backward()
         self.optimizer.step()
+        
+    def adjust_labels(labels, max_label):
+        """
+        Adjust labels to ensure they are within the expected range.
 
+        Args:
+            labels (torch.Tensor): The labels tensor.
+            max_label (int): The maximum label value (num_classes - 1).
+
+        Returns:
+            torch.Tensor: Adjusted labels tensor.
+        """
+        # Example mapping logic, adjust according to your needs
+        # This is a simple direct mapping, but you might need something more sophisticated
+        factor = max_label / 255
+        adjusted_labels = (labels.float() * factor).long()
+        return adjusted_labels
+    
     @torch.enable_grad()  # ensure grads in possible no grad context for testing
     def forward_and_adapt_adain(self, optimizer):
         try:
@@ -121,7 +208,7 @@ class GTTA(TTAMethod):
 
         optimizer.zero_grad()
         gen_imgs, loss_content, loss_style = self.adain_model(input=[imgs_src.to(self.device), labels_src.to(self.device).long()],
-                                                              moments_list=[self.dataset_means, self.dataset_stds])
+                                                                moments_list=[self.dataset_means, self.dataset_stds])
 
         loss = loss_content + 0.1 * loss_style
         loss.backward()
@@ -131,16 +218,20 @@ class GTTA(TTAMethod):
     def create_pseudo_labels(self, img_test, save_thr_pseudos=False):
         # create pseudo-labels
         output = self.model(img_test)
-        confidences, pseudo_labels = torch.max(output.softmax(dim=1), dim=1)
+        confidences, pseudo_labels = torch.max(output.softmax(dim=1), dim=1) # get the confidence and the pseudo-label for each pixel
+        # torch.max returns the maximum value and the index of the maximum value. 
 
         # filter unreliable samples
         momentum = 0.9
         self.avg_conf = momentum * self.avg_conf + (1 - momentum) * confidences.mean()
-        mask = torch.where(confidences < torch.sqrt(self.avg_conf))
+        mask = torch.where(confidences < torch.sqrt(self.avg_conf)) # torch.where returns the indices of the elements that satisfy the condition
 
         # create filtered pseudo-labels
         pseudo_labels_thr = pseudo_labels.clone()
-        pseudo_labels_thr[mask] = self.ignore_label
+        pseudo_labels_thr[mask] = self.ignore_label 
+        #ignore_label means that the pixel is not used for training. because it is not reliable enough when the confidence is lower than the average confidence
+        # so to make the model more robust, we ignore the pixels with low confidence as set the pseudo-labels to ignore_label(255).
+        # 255 value 
 
         # save the predictions
         # if save_thr_pseudos:

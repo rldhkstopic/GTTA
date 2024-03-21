@@ -38,5 +38,5 @@ RoTTA:
 #     TYPE: "temporal"
 
 LIST_NAME_SRC: "clear_train.txt"
-LIST_NAME_TEST: "day_night_1200.txt"
+LIST_NAME_TEST: "clear_rain_1200.txt" #"day_night_1200.txt"
 EXP_NAME: ""

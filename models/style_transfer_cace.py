@@ -354,16 +354,16 @@ class TransferNet(nn.Module):
         if moments_list is not None:  # perform style transfer with a list containing the moments
             # perform style transfer for output encoder: out = sigma_style * [(x - mu_cont) / sigma_cont] + mu_style
             out_encoder, means_style_enc, stds_style_enc, classes_enc = self.adain(out_encoder, labels_enc,
-                                                                                   moments_list=moments_list,
-                                                                                   i_skip=1, pre_train=pre_train)
+                                                                                    moments_list=moments_list,
+                                                                                    i_skip=1, pre_train=pre_train)
 
             # partially decode the output of the encoder
             fm11_dec = self.decoder[:17](out_encoder)
 
             # perform style transfer for feature map11: out = sigma_style * [(x - mu_cont) / sigma_cont] + mu_style
             fm11_enc, means_style_11, stds_style_11, classes_11 = self.adain(fm11_enc, labels.long(),
-                                                                             moments_list=moments_list,
-                                                                             i_skip=0, pre_train=pre_train)
+                                                                                moments_list=moments_list,
+                                                                                i_skip=0, pre_train=pre_train)
             # skip connection with former adain transformation
             fm11_dec = torch.add(fm11_dec, fm11_enc)
             gen_img = self.decoder[17:](fm11_dec)
@@ -384,7 +384,7 @@ class TransferNet(nn.Module):
             # calculate  content and style loss
             loss_content = self.mse_criterion(encode_gen, out_encoder)
             loss_style = self.mse_criterion(means_gen_11, means_style_11) + self.mse_criterion(means_gen_enc, means_style_enc) + \
-                         self.mse_criterion(stds_gen_11, stds_style_11) + self.mse_criterion(stds_gen_enc, stds_style_enc)
+                            self.mse_criterion(stds_gen_11, stds_style_11) + self.mse_criterion(stds_gen_enc, stds_style_enc)
 
             return gen_img, loss_content, loss_style
 

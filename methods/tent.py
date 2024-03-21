@@ -5,8 +5,8 @@ Corresponding paper: https://arxiv.org/abs/2006.10726
 
 import torch.nn as nn
 import torch.jit
-
 from methods.base import TTAMethod
+from carlaTTA_transforms import get_carla_transforms
 
 
 class Tent(TTAMethod):
@@ -20,11 +20,13 @@ class Tent(TTAMethod):
         Measure entropy of the model prediction, take gradients, and update params.
         """
         self.optimizer.zero_grad()
-        outputs = self.model(x)
+        transform = get_carla_transforms(256, resizeonly=True)
+        tx = transform(x)
+        outputs = self.model(tx)
         loss = softmax_entropy(outputs).mean()
         loss.backward()
         self.optimizer.step()
-        return outputs
+        return outputs 
 
     @staticmethod
     def collect_params(model):

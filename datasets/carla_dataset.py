@@ -35,7 +35,7 @@ class CarlaDataset(data.Dataset):
                 data_dir,
                 list_name,
                 ignore_label=255,
-                test_size=1024,
+                test_size=512,
                 transform_train=None,
                 is_training=False
                 ):

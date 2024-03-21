@@ -30,13 +30,19 @@ class GaussianNoise(torch.nn.Module):
     def __repr__(self):
         return f'{self.__class__.__name__}(mean={self.mean}, std={self.std})'
 
-    
-def get_carla_transforms(img_resize, gaussian_std: float=0.005, soft=False):
+
+import resource
+def get_carla_transforms(img_resize, gaussian_std: float=0.005, soft=False, resizeonly=False):
     size = img_resize
     img_size = (size * 2, size)
     
+    # if resizeonly:
+    #     base_transforms = [
+    #         transforms.Resize(img_size)
+    #     ]
+    # else:
     base_transforms = [        
-        transforms.Resize(img_size),
+        # transforms.Resize(img_size),
         transforms.ColorJitter(
             brightness=0.5 if soft else 0.2,
             contrast=0.5 if soft else 0.2,
@@ -58,6 +64,6 @@ def get_carla_transforms(img_resize, gaussian_std: float=0.005, soft=False):
         Clip(min_val=0., max_val=1.),
         # transforms.CenterCrop(img_size)
     ]
-    
+        
     return transforms.Compose(base_transforms)
 
